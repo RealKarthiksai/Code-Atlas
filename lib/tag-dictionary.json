@@ -1,0 +1,110 @@
+{
+  "FN": {
+    "name": "function",
+    "layer": "backend",
+    "domain": "core",
+    "description": "Function or method execution"
+  },
+  "VAR": {
+    "name": "variable",
+    "layer": "backend",
+    "domain": "core",
+    "description": "Variable declaration or assignment"
+  },
+  "IN": {
+    "name": "input-parameter",
+    "layer": "general",
+    "domain": "core",
+    "description": "Input parameter or request argument"
+  },
+  "COND": {
+    "name": "conditional-branch",
+    "layer": "backend",
+    "domain": "logic",
+    "description": "Control flow branch or if condition"
+  },
+  "VAL": {
+    "name": "validation",
+    "layer": "backend",
+    "domain": "validation",
+    "description": "Input validation or check constraint"
+  },
+  "CALC": {
+    "name": "calculation",
+    "layer": "backend",
+    "domain": "logic",
+    "description": "Mathematical calculation or data transformation"
+  },
+  "ERR": {
+    "name": "error-handling",
+    "layer": "utility",
+    "domain": "error",
+    "description": "Exception handling or error logging"
+  },
+  "RET": {
+    "name": "return-value",
+    "layer": "general",
+    "domain": "core",
+    "description": "Return statement or response payload"
+  },
+  "AUTH": {
+    "name": "authentication",
+    "layer": "auth-security",
+    "domain": "auth",
+    "description": "Authentication check or token verification"
+  },
+  "LOGIN": {
+    "name": "login-flow",
+    "layer": "auth-security",
+    "domain": "login",
+    "description": "User login or sign-in handling"
+  },
+  "UI": {
+    "name": "frontend-ui",
+    "layer": "frontend",
+    "domain": "ui",
+    "description": "React component, page view, or UI layout"
+  },
+  "API": {
+    "name": "api-endpoint",
+    "layer": "routing",
+    "domain": "api-routing",
+    "description": "API route or controller handler"
+  },
+  "DB": {
+    "name": "database-access",
+    "layer": "backend",
+    "domain": "database",
+    "description": "Database repository or persistence access"
+  },
+  "ROUTING": {
+    "name": "routing-guard",
+    "layer": "routing",
+    "domain": "api-routing",
+    "description": "Route navigation or middleware guard"
+  },
+  "TYPE": {
+    "name": "type-definition",
+    "layer": "types",
+    "domain": "types",
+    "description": "TypeScript interface or type definition"
+  },
+  "NOTIF": {
+    "name": "notification-dispatch",
+    "layer": "backend",
+    "domain": "notifications",
+    "description": "Email delivery or notification dispatch"
+  },
+  "ORDER": {
+    "name": "order-management",
+    "layer": "backend",
+    "domain": "orders",
+    "description": "Order creation, checkout, or cart"
+  },
+  "PAY": {
+    "name": "payment-processing",
+    "layer": "backend",
+    "domain": "payments",
+    "description": "Payment gateway or billing logic"
+  }
+}

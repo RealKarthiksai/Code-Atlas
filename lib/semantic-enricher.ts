@@ -4,6 +4,7 @@
  * AI Semantic Enrichment Layer for Codebase Atlas (V5).
  * Enriches deterministic AST / CPG nodes with architectural layer & semantic metadata:
  *   - layer: "frontend" | "backend" | "routing" | "auth-security" | "types" | "utility" | "general"
+ *   - tagIds: string[] (e.g. ["AUTH", "LOGIN", "UI", "FN", "DB"])
  *   - domains: string[] (e.g. ["auth", "login", "orders", "fleet"])
  *   - features: string[] (e.g. ["user-authentication", "permission-guard"])
  *   - concepts: string[] (e.g. ["security", "e-commerce"])
@@ -12,6 +13,7 @@
  */
 
 import { type CodeNode } from "./graph-builder";
+import { extractTagsRuleBased } from "./local-ai-tagger";
 
 export type ArchitectureLayer =
   | "frontend"
@@ -25,6 +27,7 @@ export type ArchitectureLayer =
 export interface EnrichedCodeNode extends CodeNode {
   semantic: {
     layer: ArchitectureLayer;
+    tagIds: string[];
     domains: string[];
     features: string[];
     concepts: string[];
@@ -44,6 +47,9 @@ export function enrichGraphNodes(nodes: CodeNode[]): EnrichedCodeNode[] {
     const concepts: string[] = [];
     const actions: string[] = [];
     let layer: ArchitectureLayer = "general";
+
+    // Extract compact tag IDs (FN, AUTH, LOGIN, UI, DB, etc.)
+    const tagIds = extractTagsRuleBased(node.name + " " + node.path, node.path);
 
     // 1. Layer classification
     if (node.path.endsWith(".tsx") || text.includes("component") || text.includes("page") || text.includes("view") || text.includes("ui") || text.includes("app.tsx")) {
@@ -96,6 +102,7 @@ export function enrichGraphNodes(nodes: CodeNode[]): EnrichedCodeNode[] {
       ...node,
       semantic: {
         layer,
+        tagIds,
         domains: Array.from(new Set(domains)),
         features: Array.from(new Set(features)),
         concepts: Array.from(new Set(concepts)),

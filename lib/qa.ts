@@ -547,9 +547,12 @@ function buildDeterministicSubgraphResponse(
 
     answerLines.push(`- **${layerLabel}**:`);
     for (const node of nodes.slice(0, 6)) {
+      const tagBadge = node.semantic.tagIds && node.semantic.tagIds.length > 0
+        ? ` ${node.semantic.tagIds.map((t) => `\`@TAG:${t}\``).join(" ")}`
+        : "";
       const domainsTag = node.semantic.domains.length > 0 ? ` \`[${node.semantic.domains.join(", ")}]\`` : "";
       const lineStr = node.startLine ? ` *(lines ${node.startLine}–${node.endLine || node.startLine})*` : "";
-      answerLines.push(`  - \`${node.name}\`${domainsTag} in \`${node.path}\`${lineStr}`);
+      answerLines.push(`  - \`${node.name}\`${tagBadge}${domainsTag} in \`${node.path}\`${lineStr}`);
     }
   }
 
