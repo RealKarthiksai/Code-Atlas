@@ -19,6 +19,7 @@ import FunctionDetailModal from "./FunctionDetailModal";
 import Graph3D from "./Graph3D";
 import RepoNavigatorChat from "./RepoNavigatorChat";
 import RepoAgentChat from "./RepoAgentChat";
+import FeatureUnavailable from "@/components/FeatureUnavailable";
 import { getDocsPagesForRepo, type DocsPage } from "@/lib/docs-pages";
 import { buildGraph, buildFocusSubgraph, type GraphMode } from "@/lib/graph-builder";
 import { buildRepoUrl, parseRepoViewState } from "@/lib/url-builder";
@@ -67,6 +68,8 @@ interface AnalyzeResponse {
     hooks?: { name: string; count: number; files: string[] }[];
   };
   functionIndex?: FunctionIndexRecord;
+  aiConfigured?: boolean;
+  aiError?: { error: string; message: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +328,7 @@ function RepoPageInner() {
         if (cancelled) return;
 
         if (!res.ok || json.error) {
-          setError(json.error ?? `Analysis request failed with status ${res.status}`);
+          setError(json.message ?? json.error ?? `Analysis request failed with status ${res.status}`);
         } else {
           setData(json as AnalyzeResponse);
           if (repoUrl) {
@@ -1031,17 +1034,32 @@ function RepoPageInner() {
 
               {/* AI Overview card */}
               {(() => {
-                const isFallback =
-                  data.overview.startsWith("Could not generate") ||
-                  data.overview.startsWith("GEMINI_API_KEY");
+                const isAiMissing =
+                  data.aiConfigured === false ||
+                  data.aiError?.error === "AI_NOT_CONFIGURED" ||
+                  (!data.overview && data.aiError);
+
+                if (isAiMissing) {
+                  return (
+                    <FeatureUnavailable
+                      featureName="AI Overview"
+                      message={data.aiError?.message || "Set GEMINI_API_KEY to enable this feature"}
+                      requiredEnvVar="GEMINI_API_KEY"
+                    />
+                  );
+                }
+
+                if (!data.overview) {
+                  return null;
+                }
 
                 return (
                   <div
                     style={{
                       padding: "1.25rem",
                       borderRadius: "8px",
-                      background: isFallback ? "#1c1917" : "#1e293b",
-                      border: `1px solid ${isFallback ? "#854d0e" : "#334155"}`,
+                      background: "#1e293b",
+                      border: "1px solid #334155",
                     }}
                   >
                     <h2
@@ -1049,17 +1067,17 @@ function RepoPageInner() {
                         fontSize: "1rem",
                         fontWeight: 600,
                         marginBottom: "0.5rem",
-                        color: isFallback ? "#fbbf24" : "#38bdf8",
+                        color: "#38bdf8",
                       }}
                     >
-                      {isFallback ? "⚠ AI Overview Unavailable" : "✨ AI Overview of This Repository"}
+                      ✨ AI Overview of This Repository
                     </h2>
                     <p
                       style={{
                         margin: 0,
                         lineHeight: 1.6,
                         fontSize: "0.95rem",
-                        color: isFallback ? "#d6d3d1" : "#cbd5e1",
+                        color: "#cbd5e1",
                       }}
                     >
                       {data.overview}

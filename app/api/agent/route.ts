@@ -425,66 +425,12 @@ export async function POST(request: Request) {
     } satisfies AgentResponse);
   }
 
-  // 2. Offline fallback handling if no API key is configured
+  // 2. Return HTTP 503 if no API key is configured
   if (!apiKey) {
-    if (isPRMode) {
-      const fileMatches = Array.from(
-        lastUserMessage.matchAll(/(?:---|\+\+\+)\s+[ab]\/(.+)/g)
-      ).map((m) => m[1]);
-      const affectedModules = Array.from(new Set(fileMatches));
-
-      const samplePRExplanation: PRExplanation = {
-        summary: `Explanation for PR / diff patch in ${repoUrl}. (Offline Mode)`,
-        affectedModules: affectedModules.length > 0 ? affectedModules : ["lib/command.js"],
-        keyChanges: [
-          "Updated core function signatures and parameter checks.",
-          "Refactored execution pipeline and edge condition validation.",
-        ],
-        risks: [
-          "Ensure unit test suite runs to verify no regression.",
-          "GEMINI_API_KEY is not configured for full dynamic AI PR review.",
-        ],
-      };
-
-      return Response.json({
-        content: samplePRExplanation.summary,
-        prExplanation: samplePRExplanation,
-        actions: [],
-      } satisfies AgentResponse);
-    }
-
-    if (isPlanningMode) {
-      const samplePlan: ChangePlan = {
-        summary: `Implementation plan for "${lastUserMessage}" across repository files. (Offline Mode)`,
-        steps: [
-          {
-            title: "1. Update core service module",
-            description: "Modify entry handler logic to support new request pipeline.",
-            files: ["lib/command.js", "lib/option.js"],
-          },
-          {
-            title: "2. Add middleware / validation guard",
-            description: "Enforce validation parameters and error handling bounds.",
-            files: ["lib/argument.js"],
-          },
-        ],
-        risks: [
-          "Ensure unit tests in tests/ are updated to cover new execution paths.",
-          "GEMINI_API_KEY is not configured for full dynamic AI planning.",
-        ],
-      };
-
-      return Response.json({
-        content: samplePlan.summary,
-        changePlan: samplePlan,
-        actions: [],
-      } satisfies AgentResponse);
-    }
-
-    return Response.json({
-      content: `[Agent Response] Answer to "${lastUserMessage}" based on repository structure.\n\n${contextSummary.slice(0, 250)}...`,
-      actions: [],
-    } satisfies AgentResponse);
+    return Response.json(
+      { error: "AI_NOT_CONFIGURED", message: "Set GEMINI_API_KEY to enable this feature" },
+      { status: 503 }
+    );
   }
 
   // 3. Call Gemini LLM with intent-specific prompt

@@ -49,32 +49,10 @@ export async function POST(request: Request) {
   const affectedFiles = Array.from(new Set(fileMatches));
 
   if (!apiKey) {
-    // Fallback if API key is not configured
-    const additionCount = (cleanDiff.match(/^\+[^+]/gm) || []).length;
-    const deletionCount = (cleanDiff.match(/^-[^-]/gm) || []).length;
-
-    const fallbackExplanation: DiffExplanation = {
-      summary: `This diff modifies ${affectedFiles.length} file(s) with +${additionCount} additions and -${deletionCount} deletions. (Offline Mode)`,
-      affectedModules: affectedFiles.length > 0 ? affectedFiles : ["Repository Source Files"],
-      keyChanges: [
-        `Added ${additionCount} line(s) across modified files.`,
-        `Removed ${deletionCount} line(s) across modified files.`,
-        "Pasted patch contains unified diff syntax.",
-      ],
-      risks: [
-        "GEMINI_API_KEY is not configured for full AI architectural risk analysis.",
-        "Ensure all modified functions have corresponding unit test coverage.",
-      ],
-    };
-
-    return Response.json({
-      explanation: fallbackExplanation,
-      summary: fallbackExplanation.summary,
-      affectedModules: fallbackExplanation.affectedModules,
-      keyChanges: fallbackExplanation.keyChanges,
-      risks: fallbackExplanation.risks,
-      affectedFiles,
-    });
+    return Response.json(
+      { error: "AI_NOT_CONFIGURED", message: "Set GEMINI_API_KEY to enable this feature" },
+      { status: 503 }
+    );
   }
 
   const userPrompt = `${EXPLAIN_DIFF_PROMPT}

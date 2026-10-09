@@ -224,19 +224,10 @@ export async function POST(request: Request) {
   }
 
   if (!apiKey) {
-    const lastUserMessage = recentMessages.filter((m) => m.role === "user").pop()?.content || "";
-
-    const sampleActions: NavigatorAction[] = [
-      {
-        label: "📖 Open Overview docs",
-        payload: { type: "openDocsPage", data: { slug: "overview" } },
-      },
-    ];
-
-    return Response.json({
-      content: `[Repo Context Aware] Answer to "${lastUserMessage}" based on repository analysis context.\n\n${contextSummary.slice(0, 300)}...`,
-      actions: sampleActions,
-    } satisfies NavigateRepoResponse);
+    return Response.json(
+      { error: "AI_NOT_CONFIGURED", message: "Set GEMINI_API_KEY to enable this feature" },
+      { status: 503 }
+    );
   }
 
   const contents = recentMessages.map((m) => ({

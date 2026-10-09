@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { NavigatorAction } from "@/app/api/navigate-repo/route";
+import FeatureUnavailable from "@/components/FeatureUnavailable";
 
 // ---------------------------------------------------------------------------
 // Types & Props
@@ -13,6 +14,9 @@ export interface Message {
   content: string;
   timestamp: string;
   actions?: NavigatorAction[];
+  isError?: boolean;
+  isAiUnconfigured?: boolean;
+  failedQuery?: string;
 }
 
 interface RepoNavigatorChatProps {
@@ -81,24 +85,28 @@ export default function RepoNavigatorChat({
     }
   }
 
-  async function handleSend(e?: React.FormEvent) {
+  async function handleSend(e?: React.FormEvent, retryText?: string) {
     if (e) e.preventDefault();
-    if (!input.trim() || sending) return;
+    const userText = (retryText || input).trim();
+    if (!userText || sending) return;
 
-    const userText = input.trim();
-    const userMsg: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: userText,
-      timestamp: new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    };
-
-    const updatedMessages = [...messages, userMsg];
-    setMessages(updatedMessages);
-    setInput("");
+    let updatedMessages: Message[];
+    if (retryText) {
+      updatedMessages = [...messages];
+    } else {
+      const userMsg: Message = {
+        id: Date.now().toString(),
+        role: "user",
+        content: userText,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      };
+      updatedMessages = [...messages, userMsg];
+      setMessages(updatedMessages);
+      setInput("");
+    }
     setSending(true);
 
     try {
@@ -114,11 +122,28 @@ export default function RepoNavigatorChat({
         }),
       });
 
-      const json = await res.json();
-      const replyText =
-        res.ok && json.content
-          ? json.content
-          : `Got your message: "${userText}".`;
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const isAiUnconfigured = res.status === 503 || json.error === "AI_NOT_CONFIGURED";
+        const errorMsg = json.message || json.error || `Request failed with status ${res.status}`;
+        const botMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: errorMsg,
+          isError: true,
+          isAiUnconfigured,
+          failedQuery: userText,
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        };
+        setMessages((prev) => [...prev, botMsg]);
+        return;
+      }
+
+      const replyText = json.content || "";
       const replyActions = Array.isArray(json.actions) ? json.actions : [];
 
       const botMsg: Message = {
@@ -133,11 +158,14 @@ export default function RepoNavigatorChat({
       };
 
       setMessages((prev) => [...prev, botMsg]);
-    } catch {
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to connect to navigator.";
       const botMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: `Got your message: "${userText}".`,
+        content: errorMsg,
+        isError: true,
+        failedQuery: userText,
         timestamp: new Date().toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
@@ -246,63 +274,105 @@ export default function RepoNavigatorChat({
                   borderRadius: isUser ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
                   background: isUser
                     ? "rgba(56, 189, 248, 0.2)"
+                    : msg.isError
+                    ? "#450a0a"
                     : "rgba(30, 41, 59, 0.9)",
                   border: isUser
                     ? "1px solid rgba(56, 189, 248, 0.4)"
+                    : msg.isError
+                    ? "1px solid #991b1b"
                     : "1px solid rgba(51, 65, 85, 0.6)",
-                  color: isUser ? "#38bdf8" : "#f8fafc",
+                  color: isUser ? "#38bdf8" : msg.isError ? "#fca5a5" : "#f8fafc",
                   fontSize: "0.88rem",
                   lineHeight: 1.55,
                   whiteSpace: "pre-wrap",
                   fontFamily: isUser ? "ui-monospace, monospace" : "inherit",
                 }}
               >
-                {msg.content}
+                {msg.isError ? (
+                  msg.isAiUnconfigured ? (
+                    <FeatureUnavailable
+                      featureName="Repo Navigator"
+                      message={msg.content}
+                      onRetry={msg.failedQuery ? () => handleSend(undefined, msg.failedQuery) : undefined}
+                      style={{ border: "none", background: "transparent", padding: 0 }}
+                    />
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        <span>⚠️</span>
+                        <span style={{ fontWeight: 600 }}>{msg.content}</span>
+                      </div>
+                      {msg.failedQuery && (
+                        <button
+                          onClick={() => handleSend(undefined, msg.failedQuery)}
+                          style={{
+                            alignSelf: "flex-start",
+                            padding: "0.3rem 0.75rem",
+                            borderRadius: "4px",
+                            background: "#dc2626",
+                            color: "#fff",
+                            border: "none",
+                            cursor: "pointer",
+                            fontSize: "0.78rem",
+                            fontWeight: 600,
+                          }}
+                        >
+                          🔄 Retry
+                        </button>
+                      )}
+                    </div>
+                  )
+                ) : (
+                  <>
+                    {msg.content}
 
-                {/* Assistant Action Buttons */}
-                {!isUser && msg.actions && msg.actions.length > 0 && (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: "0.4rem",
-                      marginTop: "0.6rem",
-                      paddingTop: "0.5rem",
-                      borderTop: "1px solid rgba(51, 65, 85, 0.5)",
-                    }}
-                  >
-                    {msg.actions.map((act, aIdx) => (
-                      <button
-                        key={aIdx}
-                        onClick={() => handleActionClick(act)}
+                    {/* Assistant Action Buttons */}
+                    {!isUser && msg.actions && msg.actions.length > 0 && (
+                      <div
                         style={{
-                          padding: "0.35rem 0.75rem",
-                          borderRadius: "5px",
-                          background: "rgba(56, 189, 248, 0.15)",
-                          border: "1px solid rgba(56, 189, 248, 0.4)",
-                          color: "#38bdf8",
-                          fontSize: "0.78rem",
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          fontFamily: "ui-monospace, monospace",
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "0.3rem",
-                          transition: "background 0.2s, border-color 0.2s",
-                        }}
-                        onMouseOver={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.background =
-                            "rgba(56, 189, 248, 0.3)";
-                        }}
-                        onMouseOut={(e) => {
-                          (e.currentTarget as HTMLButtonElement).style.background =
-                            "rgba(56, 189, 248, 0.15)";
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: "0.4rem",
+                          marginTop: "0.6rem",
+                          paddingTop: "0.5rem",
+                          borderTop: "1px solid rgba(51, 65, 85, 0.5)",
                         }}
                       >
-                        ⚡ {act.label}
-                      </button>
-                    ))}
-                  </div>
+                        {msg.actions.map((act, aIdx) => (
+                          <button
+                            key={aIdx}
+                            onClick={() => handleActionClick(act)}
+                            style={{
+                              padding: "0.35rem 0.75rem",
+                              borderRadius: "5px",
+                              background: "rgba(56, 189, 248, 0.15)",
+                              border: "1px solid rgba(56, 189, 248, 0.4)",
+                              color: "#38bdf8",
+                              fontSize: "0.78rem",
+                              fontWeight: 600,
+                              cursor: "pointer",
+                              fontFamily: "ui-monospace, monospace",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "0.3rem",
+                              transition: "background 0.2s, border-color 0.2s",
+                            }}
+                            onMouseOver={(e) => {
+                              (e.currentTarget as HTMLButtonElement).style.background =
+                                "rgba(56, 189, 248, 0.3)";
+                            }}
+                            onMouseOut={(e) => {
+                              (e.currentTarget as HTMLButtonElement).style.background =
+                                "rgba(56, 189, 248, 0.15)";
+                            }}
+                          >
+                            ⚡ {act.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 

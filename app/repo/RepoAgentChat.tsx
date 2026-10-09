@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { AgentAction, ChangePlan, PRExplanation, Tour, TourStep } from "@/app/api/agent/route";
+import FeatureUnavailable from "@/components/FeatureUnavailable";
 
 // ---------------------------------------------------------------------------
 // Types & Props
@@ -16,6 +17,9 @@ export interface AgentMessage {
   changePlan?: ChangePlan;
   prExplanation?: PRExplanation;
   tour?: Tour;
+  isError?: boolean;
+  isAiUnconfigured?: boolean;
+  failedQuery?: string;
 }
 
 interface RepoAgentChatProps {
@@ -139,11 +143,28 @@ export default function RepoAgentChat({
         }),
       });
 
-      const json = await res.json();
-      const replyText =
-        res.ok && json.content
-          ? json.content
-          : `Got your message: '${textToSend}'.`;
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const isAiUnconfigured = res.status === 503 || json.error === "AI_NOT_CONFIGURED";
+        const errorMsg = json.message || json.error || `Request failed with status ${res.status}`;
+        const botMsg: AgentMessage = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: errorMsg,
+          isError: true,
+          isAiUnconfigured,
+          failedQuery: textToSend,
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        };
+        setMessages((prev) => [...prev, botMsg]);
+        return;
+      }
+
+      const replyText = json.content || "";
       const replyActions = Array.isArray(json.actions) ? json.actions : [];
       const replyChangePlan = json.changePlan as ChangePlan | undefined;
       const replyPRExplanation = json.prExplanation as PRExplanation | undefined;
@@ -168,11 +189,14 @@ export default function RepoAgentChat({
       };
 
       setMessages((prev) => [...prev, botMsg]);
-    } catch {
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to connect to agent service.";
       const botMsg: AgentMessage = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content: `Got your message: '${textToSend}'.`,
+        content: errorMsg,
+        isError: true,
+        failedQuery: textToSend,
         timestamp: new Date().toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
@@ -287,18 +311,58 @@ export default function RepoAgentChat({
                   borderRadius: isUser ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
                   background: isUser
                     ? "rgba(56, 189, 248, 0.2)"
+                    : msg.isError
+                    ? "#450a0a"
                     : "rgba(30, 41, 59, 0.9)",
                   border: isUser
                     ? "1px solid rgba(56, 189, 248, 0.4)"
+                    : msg.isError
+                    ? "1px solid #991b1b"
                     : "1px solid rgba(251, 191, 36, 0.3)",
-                  color: isUser ? "#38bdf8" : "#f8fafc",
+                  color: isUser ? "#38bdf8" : msg.isError ? "#fca5a5" : "#f8fafc",
                   fontSize: "0.88rem",
                   lineHeight: 1.55,
                   whiteSpace: "pre-wrap",
                   fontFamily: isUser ? "ui-monospace, monospace" : "inherit",
                 }}
               >
-                {msg.content}
+                {msg.isError ? (
+                  msg.isAiUnconfigured ? (
+                    <FeatureUnavailable
+                      featureName="Repo Agent"
+                      message={msg.content}
+                      onRetry={msg.failedQuery ? () => handleSend(undefined, msg.failedQuery) : undefined}
+                      style={{ border: "none", background: "transparent", padding: 0 }}
+                    />
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        <span>⚠️</span>
+                        <span style={{ fontWeight: 600 }}>{msg.content}</span>
+                      </div>
+                      {msg.failedQuery && (
+                        <button
+                          onClick={() => handleSend(undefined, msg.failedQuery)}
+                          style={{
+                            alignSelf: "flex-start",
+                            padding: "0.3rem 0.75rem",
+                            borderRadius: "4px",
+                            background: "#dc2626",
+                            color: "#ffffff",
+                            border: "none",
+                            cursor: "pointer",
+                            fontSize: "0.8rem",
+                            fontWeight: 600,
+                          }}
+                        >
+                          🔄 Retry
+                        </button>
+                      )}
+                    </div>
+                  )
+                ) : (
+                  msg.content
+                )}
 
                 {/* Structured Guided Tour Card */}
                 {!isUser && msg.tour && msg.tour.steps && msg.tour.steps.length > 0 && (

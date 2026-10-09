@@ -32,11 +32,13 @@ interface GeminiResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const FALLBACK_OVERVIEW =
-  "Could not generate an AI overview. The repository contains source files — explore the graph below for structure.";
+export class AiNotConfiguredError extends Error {
+  readonly code = "AI_NOT_CONFIGURED";
+  constructor(message = "Set GEMINI_API_KEY to enable this feature") {
+    super(message);
+    this.name = "AiNotConfiguredError";
+  }
+}
 
 const GEMINI_MODEL = "gemini-3.1-flash-lite-preview";
 
@@ -47,8 +49,8 @@ const GEMINI_MODEL = "gemini-3.1-flash-lite-preview";
 /**
  * Generate a ≤150-word plain-English overview of a repository.
  *
- * Uses a single Gemini API call. If the call fails for any reason
- * (missing key, network error, rate limit), returns a static fallback.
+ * Uses a single Gemini API call. Throws AiNotConfiguredError if GEMINI_API_KEY
+ * is not set, or Error if the upstream Gemini API request fails.
  *
  * @param input.repoUrl    - Full GitHub URL
  * @param input.folders    - Top-level folder names in scope
@@ -58,51 +60,44 @@ export async function generateOverview(input: OverviewInput): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
-    console.warn(
-      "GEMINI_API_KEY is not set — returning fallback overview. " +
-        "Add it to .env.local to enable AI overviews."
-    );
-    return FALLBACK_OVERVIEW;
+    throw new AiNotConfiguredError();
   }
 
   const prompt = buildPrompt(input);
 
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            // Keep the response short and focused
-            maxOutputTokens: 300,
-            temperature: 0.3,
-          },
-        }),
-      }
-    );
-
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error(`Gemini API error (${res.status}):`, errText);
-      return FALLBACK_OVERVIEW;
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          maxOutputTokens: 300,
+          temperature: 0.3,
+        },
+      }),
     }
+  );
 
-    const data = (await res.json()) as GeminiResponse;
-
-    if (data.error) {
-      console.error("Gemini API returned error:", data.error.message);
-      return FALLBACK_OVERVIEW;
-    }
-
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    return text || FALLBACK_OVERVIEW;
-  } catch (err) {
-    console.error("Failed to call Gemini API:", err);
-    return FALLBACK_OVERVIEW;
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error(`Gemini API error (${res.status}):`, errText);
+    throw new Error(`Gemini API error (${res.status}): ${errText}`);
   }
+
+  const data = (await res.json()) as GeminiResponse;
+
+  if (data.error) {
+    console.error("Gemini API returned error:", data.error.message);
+    throw new Error(`Gemini API returned error: ${data.error.message}`);
+  }
+
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!text) {
+    throw new Error("Gemini returned empty overview response.");
+  }
+  return text;
 }
 
 // ---------------------------------------------------------------------------

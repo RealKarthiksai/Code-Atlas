@@ -8,6 +8,7 @@ import type { DiffExplanation } from "@/lib/diff-explainer";
 import RepoGraph from "@/app/repo/RepoGraph";
 import { buildGraph } from "@/lib/graph-builder";
 import { buildRepoUrl } from "@/lib/url-builder";
+import FeatureUnavailable from "@/components/FeatureUnavailable";
 
 const SAMPLE_DIFF = `diff --git a/lib/qa.ts b/lib/qa.ts
 index a1b2c3d..e5f6g7h 100644
@@ -31,6 +32,7 @@ function ExplainDiffInner() {
   const [prUrl, setPrUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isAiUnconfigured, setIsAiUnconfigured] = useState(false);
   const [explanation, setExplanation] = useState<DiffExplanation | null>(null);
   const [showGraph, setShowGraph] = useState(false);
 
@@ -53,12 +55,13 @@ function ExplainDiffInner() {
     return buildGraph(targetFiles, "detailed");
   }, [explanation]);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(e?: React.FormEvent) {
+    if (e) e.preventDefault();
     if (!diff.trim()) return;
 
     setLoading(true);
     setError(null);
+    setIsAiUnconfigured(false);
     setExplanation(null);
     setShowGraph(false);
 
@@ -72,10 +75,11 @@ function ExplainDiffInner() {
         }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
 
-      if (!res.ok || json.error) {
-        setError(json.error || `Failed to explain diff (${res.status})`);
+      if (!res.ok) {
+        setIsAiUnconfigured(res.status === 503 || json.error === "AI_NOT_CONFIGURED");
+        setError(json.message || json.error || `Failed to explain diff (${res.status})`);
       } else {
         setExplanation(json.explanation);
       }
@@ -357,18 +361,27 @@ function ExplainDiffInner() {
 
       {/* Error state banner */}
       {error && (
-        <div
-          style={{
-            padding: "1rem 1.25rem",
-            borderRadius: "8px",
-            background: "#450a0a",
-            border: "1px solid #991b1b",
-            color: "#fca5a5",
-            fontSize: "0.9rem",
-          }}
-        >
-          ⚠️ {error}
-        </div>
+        isAiUnconfigured ? (
+          <FeatureUnavailable
+            featureName="Diff Explainer"
+            message={error}
+            requiredEnvVar="GEMINI_API_KEY"
+            onRetry={handleSubmit}
+          />
+        ) : (
+          <div
+            style={{
+              padding: "1rem 1.25rem",
+              borderRadius: "8px",
+              background: "#450a0a",
+              border: "1px solid #991b1b",
+              color: "#fca5a5",
+              fontSize: "0.9rem",
+            }}
+          >
+            ⚠️ {error}
+          </div>
+        )
       )}
 
       {/* Loading banner */}

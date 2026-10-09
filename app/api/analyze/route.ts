@@ -10,8 +10,9 @@ import {
   fetchRepoTree,
   buildAnalyzeResult,
   fetchFileContent,
+  GitHubRateLimitError,
 } from "@/lib/github";
-import { generateOverview } from "@/lib/overview";
+import { generateOverview, AiNotConfiguredError } from "@/lib/overview";
 import { countFunctionCalls } from "@/lib/ast-counts";
 import { buildFunctionIndexRecord } from "@/lib/ast-intel";
 
@@ -44,11 +45,11 @@ export async function POST(request: Request) {
     const tree = await fetchRepoTree(owner, repo);
 
     // 3. Build the analysis result (TS files + graph)
-    const result = buildAnalyzeResult(tree);
+    const result: any = buildAnalyzeResult(tree);
 
     // 4. Concurrently fetch content for sample files to calculate function/hook counts & detailed index
     const sampleFiles = result.files.slice(0, 15);
-    const snippetPromises = sampleFiles.map(async (filePath) => {
+    const snippetPromises = sampleFiles.map(async (filePath: string) => {
       const content = await fetchFileContent(owner, repo, filePath, 4000);
       return content ? { path: filePath, content } : null;
     });
@@ -63,19 +64,49 @@ export async function POST(request: Request) {
       result.functionIndex = buildFunctionIndexRecord(fetchedFiles);
     }
 
-    // 5. Generate an AI overview (single LLM call, falls back gracefully)
+    // 5. Generate an AI overview (if configured)
     const folders = result.graph.nodes
-      .filter((n) => n.type === "folder")
-      .map((n) => n.label);
+      .filter((n: any) => n.type === "folder")
+      .map((n: any) => n.label);
 
-    result.overview = await generateOverview({
-      repoUrl,
-      folders,
-      sampleFiles,
-    });
+    try {
+      result.overview = await generateOverview({
+        repoUrl,
+        folders,
+        sampleFiles,
+      });
+      result.aiConfigured = true;
+    } catch (err: unknown) {
+      if (err instanceof AiNotConfiguredError || (err as any)?.code === "AI_NOT_CONFIGURED") {
+        result.overview = "";
+        result.aiConfigured = false;
+        result.aiError = {
+          error: "AI_NOT_CONFIGURED",
+          message: "Set GEMINI_API_KEY to enable this feature",
+        };
+      } else {
+        result.overview = "";
+        result.aiError = {
+          error: "AI_ERROR",
+          message: err instanceof Error ? err.message : "Failed to generate AI overview.",
+        };
+      }
+    }
 
     return Response.json(result);
   } catch (err: unknown) {
+    if (err instanceof GitHubRateLimitError || (err as any)?.code === "RATE_LIMITED") {
+      const rateLimitErr = err as GitHubRateLimitError;
+      return Response.json(
+        {
+          error: "RATE_LIMITED",
+          message: rateLimitErr.message,
+          resetTime: rateLimitErr.resetTime,
+        },
+        { status: 429 }
+      );
+    }
+
     const message =
       err instanceof Error ? err.message : "Unknown error occurred.";
 
@@ -89,6 +120,6 @@ export async function POST(request: Request) {
       status = 429;
     }
 
-    return Response.json({ error: message }, { status });
+    return Response.json({ error: message, message }, { status });
   }
 }

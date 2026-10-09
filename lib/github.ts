@@ -172,6 +172,31 @@ function githubHeaders(): Record<string, string> {
   return headers;
 }
 
+export class GitHubRateLimitError extends Error {
+  readonly code = "RATE_LIMITED";
+  readonly resetEpoch?: number;
+  readonly resetTime: string;
+
+  constructor(resetEpoch?: number) {
+    let formattedTime: string;
+    if (resetEpoch && !isNaN(resetEpoch)) {
+      const resetDate = new Date(resetEpoch * 1000);
+      formattedTime = resetDate.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    } else {
+      formattedTime = "a later time";
+    }
+    const message = `GitHub rate limit hit. Add a GITHUB_TOKEN or retry at ${formattedTime}`;
+    super(message);
+    this.name = "GitHubRateLimitError";
+    this.resetEpoch = resetEpoch;
+    this.resetTime = formattedTime;
+  }
+}
+
 /**
  * Fetch the full file tree for a repo using the Git Trees API.
  * Uses the default branch (fetched via /repos/:owner/:repo first).
@@ -190,15 +215,10 @@ export async function fetchRepoTree(
   );
 
   if (!repoRes.ok) {
-    if (repoRes.status === 403) {
-      console.warn(`[GitHub API Rate Limit] Using fallback tree for ${owner}/${repo}`);
-      return [
-        { path: "src/main.ts", mode: "100644", type: "blob", sha: "1", url: "" },
-        { path: "src/auth/service.ts", mode: "100644", type: "blob", sha: "2", url: "" },
-        { path: "src/orders/controller.ts", mode: "100644", type: "blob", sha: "3", url: "" },
-        { path: "src/utils/index.ts", mode: "100644", type: "blob", sha: "4", url: "" },
-        { path: "README.md", mode: "100644", type: "blob", sha: "5", url: "" },
-      ];
+    if (repoRes.status === 403 || repoRes.status === 429) {
+      const resetHeader = repoRes.headers.get("x-ratelimit-reset");
+      const resetEpoch = resetHeader ? parseInt(resetHeader, 10) : undefined;
+      throw new GitHubRateLimitError(resetEpoch);
     }
     const body = await repoRes.text();
     throw new Error(
@@ -216,6 +236,11 @@ export async function fetchRepoTree(
   );
 
   if (!treeRes.ok) {
+    if (treeRes.status === 403 || treeRes.status === 429) {
+      const resetHeader = treeRes.headers.get("x-ratelimit-reset");
+      const resetEpoch = resetHeader ? parseInt(resetHeader, 10) : undefined;
+      throw new GitHubRateLimitError(resetEpoch);
+    }
     const body = await treeRes.text();
     throw new Error(
       `GitHub API error (${treeRes.status}) fetching tree: ${body}`
