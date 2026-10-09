@@ -21,6 +21,11 @@ export type FunctionCallCount = {
 
 export type HookCallCount = FunctionCallCount; // same shape, filtered to hooks
 
+export type FunctionCountResult = {
+  allFunctions: FunctionCallCount[];
+  hooks: HookCallCount[];
+};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

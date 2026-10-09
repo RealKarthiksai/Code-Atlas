@@ -50,10 +50,17 @@ interface GraphEdge {
 
 import { type FunctionIndexRecord } from "@/lib/ast-intel";
 import { type RepoLanguageHint } from "@/lib/language-plugins";
+import { type SkippedStats } from "@/lib/file-filter";
 
 interface AnalyzeResponse {
   overview: string;
   files: string[];
+  totalRepoFiles?: number;
+  totalEligibleFiles?: number;
+  indexedFileCount?: number;
+  maxFilesCap?: number;
+  capHit?: boolean;
+  skippedStats?: SkippedStats;
   graph: { nodes: GraphNode[]; edges: GraphEdge[] };
   noSupportedFiles?: boolean;
   repoGuide?: {
@@ -102,6 +109,16 @@ export default function RepoPage() {
 // Inner page component
 // ---------------------------------------------------------------------------
 
+export interface ProgressState {
+  stage: "fetching" | "parsing" | "complete";
+  message: string;
+  fetched: number;
+  parsed: number;
+  total: number;
+  percentage: number;
+  currentFile?: string;
+}
+
 function RepoPageInner() {
   const searchParams = useSearchParams();
 
@@ -114,6 +131,7 @@ function RepoPageInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AnalyzeResponse | null>(null);
+  const [progress, setProgress] = useState<ProgressState | null>(null);
 
   // --- Q&A state ---
   const [question, setQuestion] = useState("");
@@ -315,25 +333,76 @@ function RepoPageInner() {
     async function analyze() {
       setLoading(true);
       setError(null);
+      setProgress({
+        stage: "fetching",
+        message: "Connecting to repository...",
+        fetched: 0,
+        parsed: 0,
+        total: 0,
+        percentage: 5,
+      });
+
+      if (!repoUrl) return;
+      const targetUrl = repoUrl;
 
       try {
-        const res = await fetch("/api/analyze", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ repoUrl }),
-        });
+        const res = await fetch(`/api/analyze?stream=true&repoUrl=${encodeURIComponent(targetUrl)}`);
 
-        const json = await res.json();
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          throw new Error(json.message || json.error || `Analysis request failed with status ${res.status}`);
+        }
 
-        if (cancelled) return;
+        const reader = res.body?.getReader();
+        if (!reader) {
+          throw new Error("Unable to read streaming response from server.");
+        }
 
-        if (!res.ok || json.error) {
-          setError(json.message ?? json.error ?? `Analysis request failed with status ${res.status}`);
-        } else {
-          setData(json as AnalyzeResponse);
-          if (repoUrl) {
-            const updated = addRecentAnalysis(repoUrl);
-            setRecents(updated);
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() || "";
+
+          for (const part of parts) {
+            const trimmed = part.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const dataStr = trimmed.slice(5).trim();
+            if (!dataStr) continue;
+
+            try {
+              const event = JSON.parse(dataStr);
+              if (event.type === "progress") {
+                setProgress({
+                  stage: event.stage,
+                  message: event.message,
+                  fetched: event.fetched,
+                  parsed: event.parsed,
+                  total: event.total,
+                  percentage: event.percentage,
+                  currentFile: event.currentFile,
+                });
+              } else if (event.type === "complete") {
+                if (cancelled) return;
+                setData(event.result as AnalyzeResponse);
+                if (repoUrl) {
+                  const updated = addRecentAnalysis(repoUrl);
+                  setRecents(updated);
+                }
+                setProgress(null);
+              } else if (event.type === "error") {
+                throw new Error(event.message || event.error || "Analysis failed.");
+              }
+            } catch (pErr) {
+              if (pErr instanceof Error && !pErr.message.includes("JSON")) {
+                throw pErr;
+              }
+            }
           }
         }
       } catch (err) {
@@ -642,14 +711,74 @@ function RepoPageInner() {
       {loading && (
         <div
           style={{
-            padding: "1.5rem",
-            borderRadius: "8px",
-            background: "#1e293b",
-            border: "1px solid #334155",
-            color: "#94a3b8",
+            padding: "1.75rem",
+            borderRadius: "10px",
+            background: "rgba(15, 23, 42, 0.9)",
+            border: "1px solid rgba(56, 189, 248, 0.3)",
+            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.37)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "1rem",
           }}
         >
-          Analyzing repository structure and generating AI overview…
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+              <span style={{ fontSize: "1.25rem" }}>⚡</span>
+              <span style={{ fontWeight: 600, color: "#f8fafc", fontSize: "0.95rem" }}>
+                {progress?.message || "Analyzing repository structure..."}
+              </span>
+            </div>
+            {progress && progress.total > 0 && (
+              <span
+                style={{
+                  fontFamily: "ui-monospace, monospace",
+                  fontSize: "0.85rem",
+                  color: "#38bdf8",
+                  fontWeight: 600,
+                }}
+              >
+                {progress.stage === "parsing"
+                  ? `${progress.parsed} / ${progress.total} parsed`
+                  : `${progress.fetched} / ${progress.total} fetched`}
+                {" "}({progress.percentage}%)
+              </span>
+            )}
+          </div>
+
+          {/* Real progress bar */}
+          <div
+            style={{
+              width: "100%",
+              height: "8px",
+              borderRadius: "4px",
+              background: "rgba(51, 65, 85, 0.6)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.min(100, Math.max(5, progress?.percentage || 5))}%`,
+                height: "100%",
+                background: "linear-gradient(90deg, #0284c7, #38bdf8)",
+                transition: "width 0.25s ease-out",
+              }}
+            />
+          </div>
+
+          {progress?.currentFile && (
+            <div
+              style={{
+                fontSize: "0.78rem",
+                color: "#94a3b8",
+                fontFamily: "ui-monospace, monospace",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              📄 {progress.currentFile}
+            </div>
+          )}
         </div>
       )}
 
@@ -714,6 +843,78 @@ function RepoPageInner() {
       {/* 4. Analyze Success View */}
       {data && (
         <section style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+          {/* Indexing Cap Exceeded Banner */}
+          {data.capHit && (
+            <div
+              style={{
+                padding: "1rem 1.25rem",
+                borderRadius: "8px",
+                background: "#451a03",
+                border: "1px solid #b45309",
+                color: "#fde68a",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.75rem",
+              }}
+            >
+              <span style={{ fontSize: "1.25rem" }}>⚠️</span>
+              <div>
+                <strong>Repository Indexing Cap Reached:</strong> Indexed{" "}
+                <strong>{data.indexedFileCount?.toLocaleString() || data.files.length.toLocaleString()}</strong> of{" "}
+                <strong>{data.totalEligibleFiles?.toLocaleString()}</strong> supported source files
+                {" "}(Capped at {data.maxFilesCap?.toLocaleString()} files to preserve browser performance).
+              </div>
+            </div>
+          )}
+
+          {/* Repository Source File & Filter Statistics Bar */}
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "0.75rem",
+              alignItems: "center",
+              padding: "0.6rem 1rem",
+              borderRadius: "6px",
+              background: "rgba(15, 23, 42, 0.6)",
+              border: "1px solid rgba(51, 65, 85, 0.6)",
+              fontSize: "0.82rem",
+              color: "#94a3b8",
+              fontFamily: "ui-monospace, monospace",
+            }}
+          >
+            <span>
+              📁 <strong>{data.files.length}</strong> source files indexed
+              {data.totalEligibleFiles && data.totalEligibleFiles !== data.files.length
+                ? ` of ${data.totalEligibleFiles} eligible`
+                : ""}
+            </span>
+            <span>•</span>
+            <span>
+              ⚡ <strong>{data.functionCounts?.allFunctions.length || 0}</strong> functions /{" "}
+              <strong>{data.functionIndex ? Object.keys(data.functionIndex).length : 0}</strong> AST entities
+            </span>
+            {data.skippedStats && data.skippedStats.totalSkipped > 0 && (
+              <>
+                <span>•</span>
+                <span>
+                  🛡️ <strong>{data.skippedStats.totalSkipped}</strong> files skipped (
+                  {[
+                    data.skippedStats.unsupported ? `${data.skippedStats.unsupported} non-code` : null,
+                    data.skippedStats.vendored ? `${data.skippedStats.vendored} vendored` : null,
+                    data.skippedStats.generated ? `${data.skippedStats.generated} generated` : null,
+                    data.skippedStats.lockfiles ? `${data.skippedStats.lockfiles} lockfiles` : null,
+                    data.skippedStats.binary ? `${data.skippedStats.binary} binary` : null,
+                    data.skippedStats.huge ? `${data.skippedStats.huge} >500KB` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
+                  )
+                </span>
+              </>
+            )}
+          </div>
+
           {/* Focused files indicator banner */}
           {(focusFile || urlFocusFiles.length > 0) && (
             <div
