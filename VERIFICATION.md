@@ -20,6 +20,7 @@
 | **Autonomous Verifier (V9)** | Autonomous code patch generation and verification | **NO** | `lib/autonomous-verifier.ts:24-60`: Does not generate patches; only wraps caller-supplied lambda and checks syntax. Disconnected from UI. | Not fixed yet (Audit phase) |
 | **Code Property Graph (V4)** | AST + Control Flow + Data Flow unified CPG | **PARTIAL** | `lib/cpg-builder.ts`: Implements CFG/PDG AST visitor in TypeScript, but is an orphan module never imported by `app/` or UI. | Not fixed yet (Audit phase) |
 | **Function Index Coverage** | Indexes functions across entire repository | **YES** | `scripts/test-200plus-indexing.ts` executed on `fastify/fastify`: 296 files indexed in 3.28s, 868 AST entities extracted, Top Functions panel reflects whole repo (`strictEqual`: 3764 calls, `test`: 2086 calls, `Fastify`: 1524 calls). | Removed `slice(0, 15)` truncation. Built `lib/repo-content-fetcher.ts` with tarball/bounded pool, `lib/file-filter.ts` with 2000-file cap, and real SSE progress streaming. |
+| **Multi-Language AST Extraction** | Genuine Tree-Sitter AST parsers for Python, Go, and Rust | **YES** | `scripts/test-parser-vs-regex.ts`: 22/22 tests passed. Tree-sitter WASM parsers extract functions, methods, classes, interfaces, traits, impls, calls, and grouped/aliased imports without false positives from string literals and without crashing on syntax errors. | Integrated `web-tree-sitter` and `tree-sitter-wasms` in `lib/treesitter-parser.ts` and `lib/language-plugins.ts`. Preserved regexes as legacy test fallback. |
 
 ## Reality Audit Findings
 
@@ -43,5 +44,5 @@
 | `lib/incremental-updater.ts:52-56` | Deletes invalidated nodes without re-parsing, wiping modified files from the graph | V7 Incremental Updater module | HIGH |
 | `lib/autonomous-verifier.ts:24-60` | Does not generate patches; only wraps caller-supplied function and checks syntax diagnostics | V9 Autonomous Verifier module | MEDIUM |
 | `lib/cpg-builder.ts`, `lib/knowledge-graph.ts`, `lib/incremental-updater.ts`, `lib/subgraph-slicer.ts`, `lib/autonomous-verifier.ts` | Orphan modules never imported into `app/` or UI | V4, V6, V7, V8, V9 claimed features | HIGH |
-| `lib/language-plugins.ts:509-660` | Python, Go, and Rust plugins use basic regex matching rather than actual AST parsers | Multi-language code intelligence | MEDIUM |
+| `lib/language-plugins.ts:509-660` | Python, Go, and Rust plugins use basic regex matching rather than actual AST parsers | Multi-language code intelligence | MEDIUM | **FIXED** (Tree-Sitter WASM AST parsers implemented) |
 | `app/api/analyze/route.ts:50` | Only fetches and indexes the first 15 files (`slice(0, 15)`); leaves rest of repository without AST data | Function indexing and Top Functions panel | MEDIUM | **FIXED** (Full repo indexing via tarball/pool up to cap) |

@@ -13,6 +13,7 @@ import zlib from "zlib";
 import { fetchFileContent, GitHubRateLimitError } from "./github";
 import { countFunctionCalls, type FunctionCountResult } from "./ast-counts";
 import { buildFunctionIndexRecord, type FunctionIndexRecord } from "./ast-intel";
+import { initTreeSitterParsers } from "./language-plugins";
 
 export interface FetchProgressEvent {
   stage: "fetching" | "parsing" | "complete";
@@ -283,6 +284,7 @@ export async function fetchRepoContents(
   }
 
   // Phase 2: AST Analysis & Function Indexing across all fetched files
+  await initTreeSitterParsers();
   onProgress?.({
     stage: "parsing",
     message: `Parsing AST and indexing functions across ${fetchedFiles.length} files...`,

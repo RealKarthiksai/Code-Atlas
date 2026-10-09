@@ -15,7 +15,9 @@
     "react-dom": "19.2.4",
     "react-force-graph-2d": "^1.29.1",
     "react-force-graph-3d": "^1.29.1",
-    "three": "^0.185.1"
+    "three": "^0.185.1",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.22.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

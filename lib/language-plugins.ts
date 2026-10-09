@@ -13,6 +13,24 @@
  */
 
 import ts from "typescript";
+import {
+  initTreeSitterParsers,
+  isTreeSitterReady,
+  extractPythonImportsAST,
+  extractPythonFunctionsAST,
+  extractPythonEntitiesAST,
+  extractPythonCallsAST,
+  extractGoImportsAST,
+  extractGoFunctionsAST,
+  extractGoEntitiesAST,
+  extractGoCallsAST,
+  extractRustImportsAST,
+  extractRustFunctionsAST,
+  extractRustEntitiesAST,
+  extractRustCallsAST,
+} from "./treesitter-parser";
+
+export { initTreeSitterParsers, isTreeSitterReady };
 
 // ---------------------------------------------------------------------------
 // Plugin Abstraction Types
@@ -503,7 +521,7 @@ export const typescriptPlugin: LanguagePlugin = {
 };
 
 // ---------------------------------------------------------------------------
-// 2. Python Language Plugin
+// 2. Python Language Plugin (Tree-Sitter AST)
 // ---------------------------------------------------------------------------
 
 export const pythonPlugin: LanguagePlugin = {
@@ -520,55 +538,79 @@ export const pythonPlugin: LanguagePlugin = {
   },
 
   extractImports: (file: { path: string; content: string }): string[] => {
-    const imports: string[] = [];
-    const lines = file.content.split("\n");
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("#") || !trimmed) continue;
-
-      // from foo.bar import baz
-      const fromMatch = trimmed.match(/^from\s+([.\w]+)\s+import/);
-      if (fromMatch) {
-        imports.push(fromMatch[1]);
-        continue;
-      }
-
-      // import foo, bar.baz
-      const importMatch = trimmed.match(/^import\s+([\w.,\s]+)/);
-      if (importMatch) {
-        const pkgs = importMatch[1].split(",").map((p) => p.trim().split(" ")[0]);
-        for (const pkg of pkgs) {
-          if (pkg) imports.push(pkg);
-        }
-      }
-    }
-
-    return Array.from(new Set(imports));
+    const astResult = extractPythonImportsAST(file.content);
+    if (astResult !== null) return astResult;
+    return extractPythonImportsRegex(file.content);
   },
 
   extractFunctions: (file: { path: string; content: string }): FunctionInfo[] => {
-    const functions: FunctionInfo[] = [];
-    const lines = file.content.split("\n");
+    const astResult = extractPythonFunctionsAST(file.content);
+    if (astResult !== null) return astResult;
+    return extractPythonFunctionsRegex(file.content);
+  },
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const match = line.match(/^\s*(?:async\s+)?def\s+([a-zA-Z_]\w*)\s*\(/);
-      if (match) {
-        functions.push({
-          name: match[1],
-          lineStart: i + 1,
-          isExport: true,
-        });
-      }
-    }
+  extractEntities: (file: { path: string; content: string }): EntityInfo[] => {
+    const astResult = extractPythonEntitiesAST(file.content);
+    return astResult || [];
+  },
 
-    return functions;
+  extractCalls: (file: { path: string; content: string }): CallInfo[] => {
+    const astResult = extractPythonCallsAST(file.content);
+    return astResult || [];
   },
 };
 
+/** Legacy regex extractor kept for testing & fallback */
+export function extractPythonImportsRegex(content: string): string[] {
+  const imports: string[] = [];
+  const lines = content.split("\n");
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("#") || !trimmed) continue;
+
+    // from foo.bar import baz
+    const fromMatch = trimmed.match(/^from\s+([.\w]+)\s+import/);
+    if (fromMatch) {
+      imports.push(fromMatch[1]);
+      continue;
+    }
+
+    // import foo, bar.baz
+    const importMatch = trimmed.match(/^import\s+([\w.,\s]+)/);
+    if (importMatch) {
+      const pkgs = importMatch[1].split(",").map((p) => p.trim().split(" ")[0]);
+      for (const pkg of pkgs) {
+        if (pkg) imports.push(pkg);
+      }
+    }
+  }
+
+  return Array.from(new Set(imports));
+}
+
+/** Legacy regex extractor kept for testing & fallback */
+export function extractPythonFunctionsRegex(content: string): FunctionInfo[] {
+  const functions: FunctionInfo[] = [];
+  const lines = content.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(/^\s*(?:async\s+)?def\s+([a-zA-Z_]\w*)\s*\(/);
+    if (match) {
+      functions.push({
+        name: match[1],
+        lineStart: i + 1,
+        isExport: true,
+      });
+    }
+  }
+
+  return functions;
+}
+
 // ---------------------------------------------------------------------------
-// 3. Go Language Plugin
+// 3. Go Language Plugin (Tree-Sitter AST)
 // ---------------------------------------------------------------------------
 
 export const goPlugin: LanguagePlugin = {
@@ -579,53 +621,76 @@ export const goPlugin: LanguagePlugin = {
   },
 
   extractImports: (file: { path: string; content: string }): string[] => {
-    const imports: string[] = [];
-    const content = file.content;
-
-    // Single-line import "pkg"
-    const singleMatches = content.matchAll(/import\s+"([^"]+)"/g);
-    for (const m of singleMatches) {
-      imports.push(m[1]);
-    }
-
-    // Multi-line import ( ... )
-    const blockMatch = content.match(/import\s*\(([\s\S]*?)\)/);
-    if (blockMatch) {
-      const blockContent = blockMatch[1];
-      const quotedMatches = blockContent.matchAll(/"([^"]+)"/g);
-      for (const m of quotedMatches) {
-        imports.push(m[1]);
-      }
-    }
-
-    return Array.from(new Set(imports));
+    const astResult = extractGoImportsAST(file.content);
+    if (astResult !== null) return astResult;
+    return extractGoImportsRegex(file.content);
   },
 
   extractFunctions: (file: { path: string; content: string }): FunctionInfo[] => {
-    const functions: FunctionInfo[] = [];
-    const lines = file.content.split("\n");
+    const astResult = extractGoFunctionsAST(file.content);
+    if (astResult !== null) return astResult;
+    return extractGoFunctionsRegex(file.content);
+  },
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      // func (r *Receiver) Foo(...) or func Foo(...)
-      const match = line.match(/^func\s+(?:\([^)]+\)\s+)?([a-zA-Z_]\w*)\s*\(/);
-      if (match) {
-        const name = match[1];
-        const isExport = /^[A-Z]/.test(name);
-        functions.push({
-          name,
-          lineStart: i + 1,
-          isExport,
-        });
-      }
-    }
+  extractEntities: (file: { path: string; content: string }): EntityInfo[] => {
+    const astResult = extractGoEntitiesAST(file.content);
+    return astResult || [];
+  },
 
-    return functions;
+  extractCalls: (file: { path: string; content: string }): CallInfo[] => {
+    const astResult = extractGoCallsAST(file.content);
+    return astResult || [];
   },
 };
 
+/** Legacy regex extractor kept for testing & fallback */
+export function extractGoImportsRegex(content: string): string[] {
+  const imports: string[] = [];
+
+  // Single-line import "pkg"
+  const singleMatches = content.matchAll(/import\s+"([^"]+)"/g);
+  for (const m of singleMatches) {
+    imports.push(m[1]);
+  }
+
+  // Multi-line import ( ... )
+  const blockMatch = content.match(/import\s*\(([\s\S]*?)\)/);
+  if (blockMatch) {
+    const blockContent = blockMatch[1];
+    const quotedMatches = blockContent.matchAll(/"([^"]+)"/g);
+    for (const m of quotedMatches) {
+      imports.push(m[1]);
+    }
+  }
+
+  return Array.from(new Set(imports));
+}
+
+/** Legacy regex extractor kept for testing & fallback */
+export function extractGoFunctionsRegex(content: string): FunctionInfo[] {
+  const functions: FunctionInfo[] = [];
+  const lines = content.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // func (r *Receiver) Foo(...) or func Foo(...)
+    const match = line.match(/^func\s+(?:\([^)]+\)\s+)?([a-zA-Z_]\w*)\s*\(/);
+    if (match) {
+      const name = match[1];
+      const isExport = /^[A-Z]/.test(name);
+      functions.push({
+        name,
+        lineStart: i + 1,
+        isExport,
+      });
+    }
+  }
+
+  return functions;
+}
+
 // ---------------------------------------------------------------------------
-// 4. Rust Language Plugin
+// 4. Rust Language Plugin (Tree-Sitter AST)
 // ---------------------------------------------------------------------------
 
 export const rustPlugin: LanguagePlugin = {
@@ -636,43 +701,67 @@ export const rustPlugin: LanguagePlugin = {
   },
 
   extractImports: (file: { path: string; content: string }): string[] => {
-    const imports: string[] = [];
-    const lines = file.content.split("\n");
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      const match = trimmed.match(/^pub\s+use\s+([^;]+);|^use\s+([^;]+);/);
-      if (match) {
-        const rawPath = (match[1] || match[2]).trim();
-        imports.push(rawPath);
-      }
-    }
-
-    return Array.from(new Set(imports));
+    const astResult = extractRustImportsAST(file.content);
+    if (astResult !== null) return astResult;
+    return extractRustImportsRegex(file.content);
   },
 
   extractFunctions: (file: { path: string; content: string }): FunctionInfo[] => {
-    const functions: FunctionInfo[] = [];
-    const lines = file.content.split("\n");
+    const astResult = extractRustFunctionsAST(file.content);
+    if (astResult !== null) return astResult;
+    return extractRustFunctionsRegex(file.content);
+  },
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      // pub fn foo(...) or pub(crate) async fn foo(...) or fn foo(...)
-      const match = line.match(/^\s*(pub(?:\([^)]+\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)/);
-      if (match) {
-        const isExport = Boolean(match[1]);
-        const name = match[2];
-        functions.push({
-          name,
-          lineStart: i + 1,
-          isExport,
-        });
-      }
-    }
+  extractEntities: (file: { path: string; content: string }): EntityInfo[] => {
+    const astResult = extractRustEntitiesAST(file.content);
+    return astResult || [];
+  },
 
-    return functions;
+  extractCalls: (file: { path: string; content: string }): CallInfo[] => {
+    const astResult = extractRustCallsAST(file.content);
+    return astResult || [];
   },
 };
+
+/** Legacy regex extractor kept for testing & fallback */
+export function extractRustImportsRegex(content: string): string[] {
+  const imports: string[] = [];
+  const lines = content.split("\n");
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const match = trimmed.match(/^pub\s+use\s+([^;]+);|^use\s+([^;]+);/);
+    if (match) {
+      const rawPath = (match[1] || match[2]).trim();
+      imports.push(rawPath);
+    }
+  }
+
+  return Array.from(new Set(imports));
+}
+
+/** Legacy regex extractor kept for testing & fallback */
+export function extractRustFunctionsRegex(content: string): FunctionInfo[] {
+  const functions: FunctionInfo[] = [];
+  const lines = content.split("\n");
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // pub fn foo(...) or pub(crate) async fn foo(...) or fn foo(...)
+    const match = line.match(/^\s*(pub(?:\([^)]+\))?\s+)?(?:async\s+)?fn\s+([a-zA-Z_]\w*)/);
+    if (match) {
+      const isExport = Boolean(match[1]);
+      const name = match[2];
+      functions.push({
+        name,
+        lineStart: i + 1,
+        isExport,
+      });
+    }
+  }
+
+  return functions;
+}
 
 // ---------------------------------------------------------------------------
 // Language Plugin Registry
